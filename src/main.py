@@ -207,13 +207,13 @@ async def handle_test_generation(
             },
             "with_language_and_intents": {
                 "summary": "With language + number_of_intents",
-                "description": "Generate 5 intent categories and output in English.",
+                "description": "Generate 3 intent categories and output in English.",
                 "value": {
                     "domain": "telecom_billing",
                     "context": {
                         "description": "Telecom billing chatbot. Users ask about charges, roaming, proration, plan changes, and refunds. Ask clarifying questions first.",
                         "language": "en",
-                        "number_of_intents": 5
+                        "number_of_intents":
                     }
                 },
             },
@@ -225,7 +225,7 @@ async def handle_test_generation(
                     "context": {
                         "description": "Telecom billing chatbot. Focus on postpaid Irish customers. Encourage the bot to ask for invoice details before resolving.",
                         "language": "en",
-                        "number_of_intents": 5,
+                        "number_of_intents": 2,
                         "userDefinedVariables": {
                             "country": "IE",
                             "segment": "postpaid",
@@ -249,3 +249,4 @@ async def handle_test_generation(
         return generate_test_cases(req, bedrock_client=bedrock_client, model_id=model_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
