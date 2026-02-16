@@ -5,16 +5,28 @@ from src.core.config import Config
 from src.core.bedrock_client import BedrockClient as CognitoBedrockClient
 from src.local.bedrock_client import BedrockClient as LocalBedrockClient
 
-from src.inference.recommendation import recommend_objective
-from src.inference.test_generation import generate_test_cases
+from src.inference.rec_objective import recommend_objective
+from src.inference.rec_test_generation import generate_test_cases
 
 from src.models.recommendation import SimpleObjectiveRequest, SimpleRecommendResponse
 from src.models.test_generation import TestGenerationRequest, TestGenerationResponse
 
+from src.docs.descriptions import (
+    API_DESCRIPTION,
+    RECOMMENDATION_DESC,
+    TEST_GEN_DESC,
+    RECOMMENDATION_EXAMPLES,
+    TEST_GENERATION_EXAMPLES,
+)
+
 config = Config.load_config()
 
-# Standard: ENV is lowercase everywhere
-env = (config.get("env") or "dev").strip().lower()
+# Enforce env exists and is correct
+env = config.get("env")
+if not env:
+    raise RuntimeError("Missing required config key: env (set ENV via env vars or Secrets Manager).")
+if env != env.lower():
+    raise RuntimeError(f"ENV must be lowercase (got: {env!r}). Expected e.g. 'local', 'dev', 'prod'.")
 
 # Always use Cognito unless local
 if env == "local":
@@ -30,30 +42,6 @@ else:
         config=config,
         endpoint_url=config.get("aws_endpoint"),
     )
-
-API_DESCRIPTION = """
-Single-purpose API providing two endpoints:
-
-### 1) Recommendation
-**Endpoint:** `/{env}/recommendation`
-
-- **Required:** `objective` (string)
-- **Optional:** `context` (object; all fields inside are optional)
-- **Optional:** `includeReason` (boolean, default `true`)
-- **Optional:** `numRecommendations` (int, default `3`, max `5`)
-
-### 2) Test Generation
-**Endpoint:** `/{env}/test-generation`
-
-- **Required:** `domain` (string)
-- **Required:** `context` (object)
-- **Required (inside context):** `description` (string)
-- **Optional (inside context):** `language` (string, default `en`)
-- **Optional (inside context):** `number_of_intents` (int, default `3`, max `10`)
-- **Optional (inside context):** `userDefinedVariables` (object)
-
-**Authentication:** requires `X-API-Key` header.
-"""
 
 app = FastAPI(
     title="Objective Recommendation API",
@@ -76,31 +64,6 @@ def verify_api_key(api_key: str | None):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-RECOMMENDATION_DESC = """
-Lightweight endpoint for defining objective recommendations.
-
-**Endpoint:** `/{env}/recommendation`
-
-**Required field:**
-- `objective` (string)
-
-**Optional fields:**
-- `context` (object). You may omit it entirely.
-- `includeReason` (boolean, default `true`)
-- `numRecommendations` (int, default `3`, max `5`)
-
-**All fields inside** `context` **are optional:**
-- `persona`
-- `domain`
-- `instructions`
-- `satisfactionCriteria` (list of strings)
-- `extraNotes`
-- `userVariables` (object; optional user-defined variables)
-
-**Authentication:** requires `X-API-Key` header.
-"""
-
-
 @app.post(
     f"/{env}/recommendation",
     response_model=SimpleRecommendResponse,
@@ -109,57 +72,7 @@ Lightweight endpoint for defining objective recommendations.
     description=RECOMMENDATION_DESC,
 )
 async def handle_recommendation(
-    req: SimpleObjectiveRequest = Body(
-        ...,
-        openapi_examples={
-            "minimal": {
-                "summary": "Minimal (objective only)",
-                "description": "Smallest valid request body.",
-                "value": {"objective": "What is this extra charge?"},
-            },
-            "with_context": {
-                "summary": "With context",
-                "description": "Adds context to guide the model response.",
-                "value": {
-                    "objective": "What is this extra charge?",
-                    "context": {
-                        "persona": "Postpaid telecom customer in Ireland",
-                        "domain": "telecom_billing",
-                        "instructions": "Treat this as a vague billing query. Focus on eliciting details before promising a resolution.",
-                        "satisfactionCriteria": [
-                            "Acknowledge the concern about the extra charge.",
-                            "Ask for a specific detail (date/amount/invoice ID).",
-                            "Avoid confirming the cause before checking bill details.",
-                        ],
-                        "extraNotes": "Customer is confused but not angry. Keep tone calm and reassuring.",
-                    },
-                },
-            },
-            "with_user_variables": {
-                "summary": "With userVariables",
-                "description": "Include optional userVariables to guide the recommendation.",
-                "value": {
-                    "objective": "Act as customer trying to return a non-returnable item",
-                    "context": {
-                        "persona": "Angry customer",
-                        "domain": "ecommerce",
-                        "instructions": "Customer is a first-time user not aware of return policy.",
-                        "userVariables": {"order_number": "1234"},
-                    },
-                },
-            },
-            "no_reason_more_results": {
-                "summary": "No reason + 5 recommendations",
-                "description": "Omit reason from response and return 5 defining objectives.",
-                "value": {
-                    "objective": "Help me dispute this roaming charge.",
-                    "includeReason": False,
-                    "numRecommendations": 5,
-                    "context": {"domain": "telecom_billing"},
-                },
-            },
-        },
-    ),
+    req: SimpleObjectiveRequest = Body(..., openapi_examples=RECOMMENDATION_EXAMPLES),
     api_key: str | None = Security(api_key_scheme),
 ):
     verify_api_key(api_key)
@@ -174,27 +87,6 @@ async def handle_recommendation(
         raise HTTPException(status_code=502, detail=str(e))
 
 
-TEST_GEN_DESC = """
-Generate structured test cases for a given domain.
-
-**Endpoint:** `/{env}/test-generation`
-
-**Required fields:**
-- `domain` (string)
-- `context` (object)
-
-**Required field inside** `context`:
-- `description` (string)
-
-**Optional fields inside** `context`:
-- `language` (string, default `en`)
-- `number_of_intents` (int, default `3`, max `10`)
-- `userDefinedVariables` (object)
-
-**Authentication:** requires `X-API-Key` header.
-"""
-
-
 @app.post(
     f"/{env}/test-generation",
     response_model=TestGenerationResponse,
@@ -202,51 +94,7 @@ Generate structured test cases for a given domain.
     description=TEST_GEN_DESC,
 )
 async def handle_test_generation(
-    req: TestGenerationRequest = Body(
-        ...,
-        openapi_examples={
-            "minimal": {
-                "summary": "Minimal (domain + required description)",
-                "description": "Smallest valid request body.",
-                "value": {
-                    "domain": "telecom_billing",
-                    "context": {
-                        "description": "Telecom billing chatbot. Users ask about charges, roaming, discounts, and invoice issues. Bot should ask clarifying questions before making claims."
-                    },
-                },
-            },
-            "with_language_and_intents": {
-                "summary": "With language + number_of_intents",
-                "description": "Generate 5 intent categories and output in English.",
-                "value": {
-                    "domain": "telecom_billing",
-                    "context": {
-                        "description": "Telecom billing chatbot. Users ask about charges, roaming, proration, plan changes, and refunds. Ask clarifying questions first.",
-                        "language": "en",
-                        "number_of_intents": 5,
-                    },
-                },
-            },
-            "with_user_defined_vars": {
-                "summary": "With userDefinedVariables",
-                "description": "Use variables to shape test cases (country, segment, channel).",
-                "value": {
-                    "domain": "telecom_billing",
-                    "context": {
-                        "description": "Telecom billing chatbot. Focus on postpaid Irish customers. Encourage the bot to ask for invoice details before resolving.",
-                        "language": "en",
-                        "number_of_intents": 5,
-                        "userDefinedVariables": {
-                            "country": "IE",
-                            "segment": "postpaid",
-                            "channel": "web_chat",
-                            "currency": "EUR",
-                        },
-                    },
-                },
-            },
-        },
-    ),
+    req: TestGenerationRequest = Body(..., openapi_examples=TEST_GENERATION_EXAMPLES),
     api_key: str | None = Security(api_key_scheme),
 ):
     verify_api_key(api_key)
