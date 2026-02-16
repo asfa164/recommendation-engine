@@ -6,7 +6,10 @@ from src.core.bedrock_client import BedrockClient as CognitoBedrockClient
 from src.local.bedrock_client import BedrockClient as LocalBedrockClient
 
 from src.inference.recommendation import recommend_objective
+from src.inference.test_generation import generate_test_cases
+
 from src.models.recommendation import SimpleObjectiveRequest, SimpleRecommendResponse
+from src.models.test_generation import TestGenerationRequest, TestGenerationResponse
 
 config = Config.load_config()
 
@@ -28,7 +31,15 @@ else:
         endpoint_url=config.get("aws_endpoint"),
     )
 
-app = FastAPI(title="Cyara Recommendation Engine", version="1.0.0")
+API_DESCRIPTION = """
+Single-purpose API providing:
+- **Recommendation**: refine a vague objective into clearer, testable defining objective(s).
+- **Test generation**: generate structured test cases for a given domain/context.
+
+**Authentication:** requires `X-API-Key` header.
+"""
+
+app = FastAPI(title="Cyara Recommendation Engine", version="1.0.0", description=API_DESCRIPTION)
 
 api_key_scheme = APIKeyHeader(
     name="X-API-Key",
@@ -48,7 +59,7 @@ def verify_api_key(api_key: str | None):
 @app.post(
     f"/{env}/recommendation",
     response_model=SimpleRecommendResponse,
-    response_model_exclude_none=True,  # ✅ omits "reason" when includeReason=false
+    response_model_exclude_none=True,
     summary="Recommend clearer defining objective(s)",
     description="Takes a vague objective and optional context and returns clearer, testable defining objective(s).",
 )
@@ -64,5 +75,30 @@ async def handle_recommendation(
 
     try:
         return recommend_objective(req, bedrock_client=bedrock_client, model_id=model_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post(
+    f"/{env}/test-generation",
+    response_model=TestGenerationResponse,
+    summary="Generate test cases",
+    description=(
+        "Generates a list of structured test cases for a given domain and context.\n\n"
+        "**Authentication:** requires `X-API-Key` header."
+    ),
+)
+async def handle_test_generation(
+    req: TestGenerationRequest,
+    api_key: str | None = Security(api_key_scheme),
+):
+    verify_api_key(api_key)
+
+    model_id = config.get("bedrock_model_id")
+    if not model_id:
+        raise HTTPException(status_code=500, detail="BEDROCK_MODEL_ID is not configured")
+
+    try:
+        return generate_test_cases(req, bedrock_client=bedrock_client, model_id=model_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
