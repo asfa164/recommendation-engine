@@ -13,13 +13,26 @@ class SimpleContext(BaseModel):
     )
     extraNotes: str | None = Field(default=None, description="Any extra notes (optional).")
 
+    # ✅ NEW: allow userVariables in recommendation context
+    userVariables: dict = Field(
+        default_factory=dict,
+        description="Optional user-defined variables to guide the recommendation (e.g., order_id, plan_type).",
+    )
+
 
 class SimpleObjectiveRequest(BaseModel):
     """
     Request payload for /{env}/recommendation.
     """
-    objective: str = Field(..., min_length=1, description="Vague objective to refine into clearer defining objective(s).")
-    context: SimpleContext | None = Field(default=None, description="Optional context object (all fields are optional).")
+    objective: str = Field(
+        ...,
+        min_length=1,
+        description="Vague objective to refine into clearer defining objective(s).",
+    )
+    context: SimpleContext | None = Field(
+        default=None,
+        description="Optional context object (all fields are optional).",
+    )
 
     includeReason: bool = Field(
         True,
@@ -38,4 +51,7 @@ class SimpleRecommendResponse(BaseModel):
         default=None,
         description="Explanation of why the defining objective(s) were suggested (omitted when includeReason=false).",
     )
-    definingObjectives: list[str] = Field(..., description="List of defining objectives (length = numRecommendations).")
+    definingObjectives: list[str] = Field(
+        ...,
+        description="List of defining objectives (length = numRecommendations).",
+    )
