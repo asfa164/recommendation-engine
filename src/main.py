@@ -32,14 +32,34 @@ else:
     )
 
 API_DESCRIPTION = """
-Single-purpose API providing:
-- **Recommendation**: refine a vague objective into clearer, testable defining objective(s).
-- **Test generation**: generate structured test cases for a given domain/context.
+Single-purpose API providing two endpoints:
+
+### 1) Recommendation
+**Endpoint:** `/{env}/recommendation`
+
+- **Required:** `objective` (string)
+- **Optional:** `context` (object; all fields inside are optional)
+- **Optional:** `includeReason` (boolean, default `true`)
+- **Optional:** `numRecommendations` (int, default `3`, max `5`)
+
+### 2) Test Generation
+**Endpoint:** `/{env}/test-generation`
+
+- **Required:** `domain` (string)
+- **Required:** `context` (object)
+- **Required (inside context):** `description` (string)
+- **Optional (inside context):** `language` (string, default `en`)
+- **Optional (inside context):** `number_of_intents` (int, default `3`, max `10`)
+- **Optional (inside context):** `userDefinedVariables` (object)
 
 **Authentication:** requires `X-API-Key` header.
 """
 
-app = FastAPI(title="Cyara Recommendation Engine", version="1.0.0", description=API_DESCRIPTION)
+app = FastAPI(
+    title="Objective Recommendation API",
+    version="2.0.0",
+    description=API_DESCRIPTION,
+)
 
 api_key_scheme = APIKeyHeader(
     name="X-API-Key",
@@ -56,12 +76,36 @@ def verify_api_key(api_key: str | None):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+RECOMMENDATION_DESC = """
+Lightweight endpoint for defining objective recommendations.
+
+**Endpoint:** `/{env}/recommendation`
+
+**Required field:**
+- `objective` (string)
+
+**Optional fields:**
+- `context` (object). You may omit it entirely.
+- `includeReason` (boolean, default `true`)
+- `numRecommendations` (int, default `3`, max `5`)
+
+**All fields inside** `context` **are optional:**
+- `persona`
+- `domain`
+- `instructions`
+- `satisfactionCriteria` (list of strings)
+- `extraNotes`
+
+**Authentication:** requires `X-API-Key` header.
+"""
+
+
 @app.post(
     f"/{env}/recommendation",
     response_model=SimpleRecommendResponse,
-    response_model_exclude_none=True,
-    summary="Recommend clearer defining objective(s)",
-    description="Takes a vague objective and optional context and returns clearer, testable defining objective(s).",
+    response_model_exclude_none=True,  # omits reason when includeReason=false
+    summary="Recommend clearer defining objective",
+    description=RECOMMENDATION_DESC,
 )
 async def handle_recommendation(
     req: SimpleObjectiveRequest,
@@ -79,14 +123,32 @@ async def handle_recommendation(
         raise HTTPException(status_code=502, detail=str(e))
 
 
+TEST_GEN_DESC = """
+Generate structured test cases for a given domain.
+
+**Endpoint:** `/{env}/test-generation`
+
+**Required fields:**
+- `domain` (string)
+- `context` (object)
+
+**Required field inside** `context`:
+- `description` (string)
+
+**Optional fields inside** `context`:
+- `language` (string, default `en`)
+- `number_of_intents` (int, default `3`, max `10`)
+- `userDefinedVariables` (object)
+
+**Authentication:** requires `X-API-Key` header.
+"""
+
+
 @app.post(
     f"/{env}/test-generation",
     response_model=TestGenerationResponse,
     summary="Generate test cases",
-    description=(
-        "Generates a list of structured test cases for a given domain and context.\n\n"
-        "**Authentication:** requires `X-API-Key` header."
-    ),
+    description=TEST_GEN_DESC,
 )
 async def handle_test_generation(
     req: TestGenerationRequest,
