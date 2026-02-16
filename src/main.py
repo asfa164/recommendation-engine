@@ -36,6 +36,7 @@ api_key_scheme = APIKeyHeader(
     scheme_name="ApiKeyAuth",
 )
 
+
 def verify_api_key(api_key: str | None):
     expected = config.get("api_key")
     if not expected:
@@ -47,8 +48,9 @@ def verify_api_key(api_key: str | None):
 @app.post(
     f"/{env}/recommendation",
     response_model=SimpleRecommendResponse,
-    summary="Recommend clearer defining objective",
-    description="Takes a vague objective and optional context and returns a clearer, testable defining objective.",
+    response_model_exclude_none=True,  # ✅ omits "reason" when includeReason=false
+    summary="Recommend clearer defining objective(s)",
+    description="Takes a vague objective and optional context and returns clearer, testable defining objective(s).",
 )
 async def handle_recommendation(
     req: SimpleObjectiveRequest,
