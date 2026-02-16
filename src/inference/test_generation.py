@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from src.inference.utilities import extract_text_from_anthropic_bedrock, safe_json_loads
@@ -21,9 +20,9 @@ You will receive a JSON payload containing:
 
 Output rules (STRICT):
 - You MUST return ONLY valid JSON. No markdown. No extra text.
-- The first non-whitespace character MUST be '{' and the last MUST be '}'.
 - All strings MUST be valid JSON strings (escape quotes like \\" and newlines like \\n).
 - Do NOT include trailing commas.
+- Do NOT include any keys other than: domain, language, testCases.
 
 The JSON MUST match EXACTLY this schema:
 
@@ -45,46 +44,39 @@ The JSON MUST match EXACTLY this schema:
 Quality requirements:
 - Return AT LEAST (number_of_intents) test cases.
 - Each test case should represent a different intent/category relevant to the domain.
-- Steps should be concrete and testable, written in the requested language.
-- Expected should include what a good bot/system should do (clarifying questions, constraints, confirmations, etc.).
+- Steps and expected should be concrete and testable, written in the requested language.
 """
 
 
-def _strip_trailing_commas(text: str) -> str:
-    # Remove trailing commas before } or ]
-    prev = None
-    cur = text
-    while prev != cur:
-        prev = cur
-        cur = re.sub(r",(\s*[}\]])", r"\1", cur)
-    return cur
+SYSTEM_PROMPT_JSON_REPAIR = """You are a strict JSON repair tool.
 
+You will be given text that is intended to be JSON but may be invalid.
+Your job is to output ONLY valid JSON that matches the required schema below.
+No markdown, no commentary, no extra keys.
 
-def _normalize_quotes(text: str) -> str:
-    # Replace smart quotes with normal quotes (common model artifact)
-    return (
-        text.replace("\u201c", '"')
-        .replace("\u201d", '"')
-        .replace("\u2018", "'")
-        .replace("\u2019", "'")
-    )
+Required schema:
 
+{
+  "domain": string,
+  "language": string,
+  "testCases": [
+    {
+      "name": string,
+      "description": string,
+      "persona": string | null,
+      "userVariables": object,
+      "steps": [string, ...],
+      "expected": [string, ...]
+    }
+  ]
+}
 
-def safe_json_loads_lenient(text: str) -> dict:
-    """
-    1) Try strict safe_json_loads() (your existing helper).
-    2) If it fails, attempt small repairs:
-       - normalize smart quotes
-       - remove trailing commas
-       - re-attempt parsing (including { ... } extraction from safe_json_loads logic)
-    """
-    try:
-        return safe_json_loads(text)
-    except Exception:
-        repaired = _normalize_quotes(text)
-        repaired = _strip_trailing_commas(repaired)
-        # Try again using the existing safe_json_loads (it already extracts the first {...} block)
-        return safe_json_loads(repaired)
+Rules:
+- Output must be valid JSON.
+- Escape any quotes inside strings properly.
+- Remove trailing commas.
+- Preserve as much original meaning/content as possible.
+"""
 
 
 def _validate_min_counts(parsed: dict, min_cases: int) -> None:
@@ -95,6 +87,42 @@ def _validate_min_counts(parsed: dict, min_cases: int) -> None:
         raise ValueError(f"Model returned {len(tcs)} testCases but minimum required is {min_cases}")
 
 
+def _invoke_bedrock_text(bedrock_client: Any, model_id: str, system: str, user_text: str, max_tokens: int) -> str:
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "system": system,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": user_text}]}],
+        "max_tokens": max_tokens,
+        "temperature": 0.0,
+    }
+    resp = bedrock_client.invoke_model(model_id=model_id, body=body)
+    raw = extract_text_from_anthropic_bedrock(resp)
+    return (raw or "").strip()
+
+
+def _parse_or_repair_json(
+    raw_text: str,
+    bedrock_client: Any,
+    model_id: str,
+) -> dict:
+    """
+    Try to parse JSON. If it fails, do a single repair pass via the model, then parse again.
+    """
+    try:
+        return safe_json_loads(raw_text)
+    except Exception:
+        repaired_text = _invoke_bedrock_text(
+            bedrock_client=bedrock_client,
+            model_id=model_id,
+            system=SYSTEM_PROMPT_JSON_REPAIR,
+            user_text=raw_text,
+            max_tokens=1400,
+        )
+        if not repaired_text:
+            raise ValueError("Model returned invalid JSON and repair step returned empty text.")
+        return safe_json_loads(repaired_text)
+
+
 def generate_test_cases(
     payload: dict | TestGenerationRequest,
     bedrock_client: Any,
@@ -103,31 +131,24 @@ def generate_test_cases(
     req = payload if isinstance(payload, TestGenerationRequest) else TestGenerationRequest.model_validate(payload)
     model_input = req.model_dump()
 
-    body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "system": SYSTEM_PROMPT_TEST_GENERATION,
-        "messages": [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": json.dumps(model_input, ensure_ascii=False, indent=2)}],
-            }
-        ],
-        "max_tokens": 900,
-        "temperature": 0.0,
-    }
-
-    resp = bedrock_client.invoke_model(model_id=model_id, body=body)
-    raw_text = extract_text_from_anthropic_bedrock(resp)
-    if not raw_text or not raw_text.strip():
+    # First call: generate JSON
+    gen_text = _invoke_bedrock_text(
+        bedrock_client=bedrock_client,
+        model_id=model_id,
+        system=SYSTEM_PROMPT_TEST_GENERATION,
+        user_text=json.dumps(model_input, ensure_ascii=False, indent=2),
+        max_tokens=1100,
+    )
+    if not gen_text:
         raise ValueError("Bedrock response did not contain model text")
 
-    parsed = safe_json_loads_lenient(raw_text)
+    parsed = _parse_or_repair_json(gen_text, bedrock_client=bedrock_client, model_id=model_id)
     if not isinstance(parsed, dict):
         raise ValueError("Model output must be a JSON object")
 
     _validate_min_counts(parsed, min_cases=req.context.number_of_intents)
 
-    # Force domain/language to match request even if model drifted
+    # Force request truth (prevents model drift)
     parsed["domain"] = req.domain
     parsed["language"] = req.context.language
 
