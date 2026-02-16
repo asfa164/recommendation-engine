@@ -213,7 +213,7 @@ async def handle_test_generation(
                     "context": {
                         "description": "Telecom billing chatbot. Users ask about charges, roaming, proration, plan changes, and refunds. Ask clarifying questions first.",
                         "language": "en",
-                        "number_of_intents":
+                        "number_of_intents":3
                     }
                 },
             },
@@ -249,4 +249,5 @@ async def handle_test_generation(
         return generate_test_cases(req, bedrock_client=bedrock_client, model_id=model_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
 
