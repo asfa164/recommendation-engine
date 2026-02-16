@@ -95,6 +95,7 @@ Lightweight endpoint for defining objective recommendations.
 - `instructions`
 - `satisfactionCriteria` (list of strings)
 - `extraNotes`
+- `userVariables` (object; optional user-defined variables)
 
 **Authentication:** requires `X-API-Key` header.
 """
@@ -114,26 +115,37 @@ async def handle_recommendation(
             "minimal": {
                 "summary": "Minimal (objective only)",
                 "description": "Smallest valid request body.",
-                "value": {
-                    "objective": "What is this extra charge?"
-                },
+                "value": {"objective": "What is this extra charge?"},
             },
             "with_context": {
-                "summary": "With context (recommended)",
+                "summary": "With context",
                 "description": "Adds context to guide the model response.",
                 "value": {
                     "objective": "What is this extra charge?",
                     "context": {
                         "persona": "Postpaid telecom customer in Ireland",
                         "domain": "telecom_billing",
-                        "instructions": "Treat this as a vague billing query. The customer only says 'What is this extra charge?' with no further context. Focus on eliciting details before promising a resolution.",
+                        "instructions": "Treat this as a vague billing query. Focus on eliciting details before promising a resolution.",
                         "satisfactionCriteria": [
                             "Acknowledge the concern about the extra charge.",
                             "Ask for a specific detail (date/amount/invoice ID).",
-                            "Avoid confirming the cause before checking bill details."
+                            "Avoid confirming the cause before checking bill details.",
                         ],
-                        "extraNotes": "Customer is confused but not angry. Keep tone calm and reassuring."
-                    }
+                        "extraNotes": "Customer is confused but not angry. Keep tone calm and reassuring.",
+                    },
+                },
+            },
+            "with_user_variables": {
+                "summary": "With userVariables",
+                "description": "Include optional userVariables to guide the recommendation.",
+                "value": {
+                    "objective": "Act as customer trying to return a non-returnable item",
+                    "context": {
+                        "persona": "Angry customer",
+                        "domain": "ecommerce",
+                        "instructions": "Customer is a first-time user not aware of return policy.",
+                        "userVariables": {"order_number": "1234"},
+                    },
                 },
             },
             "no_reason_more_results": {
@@ -143,9 +155,7 @@ async def handle_recommendation(
                     "objective": "Help me dispute this roaming charge.",
                     "includeReason": False,
                     "numRecommendations": 5,
-                    "context": {
-                        "domain": "telecom_billing"
-                    }
+                    "context": {"domain": "telecom_billing"},
                 },
             },
         },
@@ -202,19 +212,19 @@ async def handle_test_generation(
                     "domain": "telecom_billing",
                     "context": {
                         "description": "Telecom billing chatbot. Users ask about charges, roaming, discounts, and invoice issues. Bot should ask clarifying questions before making claims."
-                    }
+                    },
                 },
             },
             "with_language_and_intents": {
                 "summary": "With language + number_of_intents",
-                "description": "Generate 3 intent categories and output in English.",
+                "description": "Generate 5 intent categories and output in English.",
                 "value": {
                     "domain": "telecom_billing",
                     "context": {
                         "description": "Telecom billing chatbot. Users ask about charges, roaming, proration, plan changes, and refunds. Ask clarifying questions first.",
                         "language": "en",
-                        "number_of_intents":3
-                    }
+                        "number_of_intents": 5,
+                    },
                 },
             },
             "with_user_defined_vars": {
@@ -225,14 +235,14 @@ async def handle_test_generation(
                     "context": {
                         "description": "Telecom billing chatbot. Focus on postpaid Irish customers. Encourage the bot to ask for invoice details before resolving.",
                         "language": "en",
-                        "number_of_intents": 2,
+                        "number_of_intents": 5,
                         "userDefinedVariables": {
                             "country": "IE",
                             "segment": "postpaid",
                             "channel": "web_chat",
-                            "currency": "EUR"
-                        }
-                    }
+                            "currency": "EUR",
+                        },
+                    },
                 },
             },
         },
@@ -249,5 +259,3 @@ async def handle_test_generation(
         return generate_test_cases(req, bedrock_client=bedrock_client, model_id=model_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
-
-
