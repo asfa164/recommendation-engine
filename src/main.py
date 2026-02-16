@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Security
+from fastapi import FastAPI, HTTPException, Security, Body
 from fastapi.security.api_key import APIKeyHeader
 
 from src.core.config import Config
@@ -103,12 +103,53 @@ Lightweight endpoint for defining objective recommendations.
 @app.post(
     f"/{env}/recommendation",
     response_model=SimpleRecommendResponse,
-    response_model_exclude_none=True,  # omits reason when includeReason=false
+    response_model_exclude_none=True,
     summary="Recommend clearer defining objective",
     description=RECOMMENDATION_DESC,
 )
 async def handle_recommendation(
-    req: SimpleObjectiveRequest,
+    req: SimpleObjectiveRequest = Body(
+        ...,
+        openapi_examples={
+            "minimal": {
+                "summary": "Minimal (objective only)",
+                "description": "Smallest valid request body.",
+                "value": {
+                    "objective": "What is this extra charge?"
+                },
+            },
+            "with_context": {
+                "summary": "With context (recommended)",
+                "description": "Adds context to guide the model response.",
+                "value": {
+                    "objective": "What is this extra charge?",
+                    "context": {
+                        "persona": "Postpaid telecom customer in Ireland",
+                        "domain": "telecom_billing",
+                        "instructions": "Treat this as a vague billing query. The customer only says 'What is this extra charge?' with no further context. Focus on eliciting details before promising a resolution.",
+                        "satisfactionCriteria": [
+                            "Acknowledge the concern about the extra charge.",
+                            "Ask for a specific detail (date/amount/invoice ID).",
+                            "Avoid confirming the cause before checking bill details."
+                        ],
+                        "extraNotes": "Customer is confused but not angry. Keep tone calm and reassuring."
+                    }
+                },
+            },
+            "no_reason_more_results": {
+                "summary": "No reason + 5 recommendations",
+                "description": "Omit reason from response and return 5 defining objectives.",
+                "value": {
+                    "objective": "Help me dispute this roaming charge.",
+                    "includeReason": False,
+                    "numRecommendations": 5,
+                    "context": {
+                        "domain": "telecom_billing"
+                    }
+                },
+            },
+        },
+    ),
     api_key: str | None = Security(api_key_scheme),
 ):
     verify_api_key(api_key)
@@ -151,7 +192,51 @@ Generate structured test cases for a given domain.
     description=TEST_GEN_DESC,
 )
 async def handle_test_generation(
-    req: TestGenerationRequest,
+    req: TestGenerationRequest = Body(
+        ...,
+        openapi_examples={
+            "minimal": {
+                "summary": "Minimal (domain + required description)",
+                "description": "Smallest valid request body.",
+                "value": {
+                    "domain": "telecom_billing",
+                    "context": {
+                        "description": "Telecom billing chatbot. Users ask about charges, roaming, discounts, and invoice issues. Bot should ask clarifying questions before making claims."
+                    }
+                },
+            },
+            "with_language_and_intents": {
+                "summary": "With language + number_of_intents",
+                "description": "Generate 5 intent categories and output in English.",
+                "value": {
+                    "domain": "telecom_billing",
+                    "context": {
+                        "description": "Telecom billing chatbot. Users ask about charges, roaming, proration, plan changes, and refunds. Ask clarifying questions first.",
+                        "language": "en",
+                        "number_of_intents": 5
+                    }
+                },
+            },
+            "with_user_defined_vars": {
+                "summary": "With userDefinedVariables",
+                "description": "Use variables to shape test cases (country, segment, channel).",
+                "value": {
+                    "domain": "telecom_billing",
+                    "context": {
+                        "description": "Telecom billing chatbot. Focus on postpaid Irish customers. Encourage the bot to ask for invoice details before resolving.",
+                        "language": "en",
+                        "number_of_intents": 5,
+                        "userDefinedVariables": {
+                            "country": "IE",
+                            "segment": "postpaid",
+                            "channel": "web_chat",
+                            "currency": "EUR"
+                        }
+                    }
+                },
+            },
+        },
+    ),
     api_key: str | None = Security(api_key_scheme),
 ):
     verify_api_key(api_key)
