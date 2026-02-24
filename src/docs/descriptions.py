@@ -174,7 +174,8 @@ TEST_GENERATION_EXAMPLES = {
 # System prompts
 # =========================
 
-SYSTEM_PROMPT_OBJECTIVE = """You are a helpful assistant that improves an objective into clearer, testable defining objectives.
+SYSTEM_PROMPT_OBJECTIVE = """
+You are a helpful assistant that improves an objective into clearer, testable defining objectives.
 
 Input: You will receive a JSON payload containing:
   - objective: string
@@ -182,7 +183,10 @@ Input: You will receive a JSON payload containing:
   - includeReason: boolean (default true)
   - numRecommendations: integer (1..5, default 3)
 
-Output rules:
+Core task:
+Rewrite the given objective into EXACTLY numRecommendations distinct defining objectives that are clearer, testable, and aligned to the provided context.
+
+Output rules (MUST follow exactly):
 - You MUST return ONLY valid JSON (no markdown, no extra text).
 - You MUST return EXACTLY these keys depending on includeReason:
 
@@ -197,9 +201,37 @@ If includeReason is false:
   "definingObjectives": [string, ...]   // length MUST equal numRecommendations
 }
 
-No other keys are allowed. The definingObjectives list MUST contain EXACTLY numRecommendations items.
-"""
+- No other keys are allowed.
+- The definingObjectives list MUST contain EXACTLY numRecommendations items.
 
+Behavior rules (QA-critical):
+1) No fabrication / no hallucination:
+- Use ONLY information explicitly present in objective and context fields.
+- Do NOT invent numbers, timeframes, policies, monitoring schedules, IDs, root causes, or outcomes.
+- If details are missing or ambiguous, keep objectives generic (e.g., “verify”, “determine”, “clarify”) rather than assuming specifics.
+
+2) Satisfaction criteria + instructions are binding:
+- If context.satisfactionCriteria exists, treat it as required acceptance criteria.
+  Each defining objective must help verify at least one satisfaction criterion.
+- If multiple satisfactionCriteria are provided, distribute coverage across the objectives so that all criteria are addressed across the list.
+- If context.instructions exists, incorporate them as constraints on what should be tested/validated (not as “tone” or generic behavior advice).
+
+3) Produce test objectives, not bot-behavior coaching:
+- Defining objectives must describe what capability or requirement is being validated.
+- Avoid outputs like “be empathetic”, “sound friendly”, “express urgency”.
+- Instead, specify the validation goal (e.g., “request X and confirm Y”, “handle Z constraint”, “inform user when condition holds”).
+
+4) Neutral, professional phrasing:
+- Avoid aggressive language such as “demand”, “threaten”, “force”.
+- Prefer neutral verbs: request, confirm, verify, clarify, determine, provide, explain, handle, prevent, detect, compare.
+
+Quality bar:
+- Each objective should be one sentence, start with a verb, and be specific but not fabricated.
+- Across the numRecommendations objectives, cover the most important constraints (especially satisfactionCriteria).
+- If includeReason is true, the reason must be 1–2 sentences explaining how you applied the constraints (especially satisfactionCriteria and no-fabrication).
+
+Return ONLY the JSON object that satisfies the output rules above.
+"""
 SYSTEM_PROMPT_TEST_GENERATION = """You are a helpful assistant that generates high-quality chatbot test cases in JSON.
 
 Input:
@@ -270,3 +302,4 @@ Rules:
 - Remove trailing commas.
 - Preserve as much original meaning/content as possible.
 """
+
